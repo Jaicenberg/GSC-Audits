@@ -19,6 +19,15 @@ BASE_DIR = Path(__file__).parent
 USER_DATA_DIR = BASE_DIR / "browser_session"
 CREDENTIALS_FILE = BASE_DIR / "credentials.json"
 
+# Google account index (u/0, u/1, u/2, etc.) - change if using different account
+ACCOUNT_INDEX = "2"
+
+# Base URLs with account index
+GSC_BASE_URL = f"https://search.google.com/u/{ACCOUNT_INDEX}/search-console"
+GSC_WELCOME_URL = f"{GSC_BASE_URL}/welcome"
+GSC_INDEX_URL = f"{GSC_BASE_URL}/index"  # Page Indexing
+GSC_LINKS_URL = f"{GSC_BASE_URL}/links/drilldown"  # Top Links
+
 
 def load_credentials():
     """Load credentials from JSON file (gitignored)."""
@@ -51,9 +60,14 @@ async def export_links_report(page, property_url, output_path, date_str):
     """
     Export Top Linking Sites from the Links report.
     """
-    encoded_property = quote(property_url, safe='')
-    links_url = f"https://search.google.com/search-console/links?resource_id={encoded_property}"
     domain = extract_domain(property_url)
+
+    # Build the correct URL format: sc-domain:domain.com
+    resource_id = f"sc-domain:{domain}"
+    encoded_resource = quote(resource_id, safe='')
+
+    # Use the correct links drilldown URL with all required params
+    links_url = f"{GSC_LINKS_URL}?resource_id={encoded_resource}&type=DOMAIN&target=&domain="
 
     try:
         await page.goto(links_url)
@@ -145,10 +159,14 @@ async def export_indexing_report(page, property_url, output_path, date_str):
     """
     Export Page Indexing (Coverage) report as ZIP.
     """
-    encoded_property = quote(property_url, safe='')
-    # The indexing report URL
-    indexing_url = f"https://search.google.com/search-console/index?resource_id={encoded_property}"
     domain = extract_domain(property_url)
+
+    # Build the correct URL format: sc-domain:domain.com
+    resource_id = f"sc-domain:{domain}"
+    encoded_resource = quote(resource_id, safe='')
+
+    # Use the correct page indexing URL
+    indexing_url = f"{GSC_INDEX_URL}?resource_id={encoded_resource}"
 
     try:
         await page.goto(indexing_url)
@@ -257,10 +275,10 @@ async def discover_properties(page):
     properties = []
 
     try:
-        # Navigate to the Search Console homepage which lists all properties
-        await page.goto('https://search.google.com/search-console')
+        # Navigate to the Search Console welcome/homepage which lists all properties
+        await page.goto(GSC_WELCOME_URL)
         await page.wait_for_load_state('networkidle')
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(3000)
 
         # Find all property links on the page
         # GSC homepage shows property cards with links containing resource_id
@@ -387,7 +405,7 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
 
         # Navigate to GSC and handle login
         print("Navigating to Google Search Console...")
-        await page.goto('https://search.google.com/search-console')
+        await page.goto(GSC_WELCOME_URL)
         await page.wait_for_load_state('networkidle')
 
         if 'accounts.google.com' in page.url or 'signin' in page.url.lower():
@@ -430,18 +448,18 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
                     input("  Press Enter after you've logged in...")
 
             # Wait for redirect and navigation
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(5000)
 
-            # Navigate to Search Console if not already there
-            if 'search.google.com/search-console' not in page.url:
-                await page.goto('https://search.google.com/search-console')
+            # Navigate to Search Console welcome page if not already there
+            if 'search.google.com' not in page.url or 'search-console' not in page.url:
+                await page.goto(GSC_WELCOME_URL)
                 await page.wait_for_load_state('networkidle')
             await page.wait_for_timeout(3000)
 
             # Check if login succeeded
             if 'accounts.google.com' in page.url:
                 print("\n  WARNING: Still on login page. Google may have blocked automated login.")
-                print("  Try running without --headless to complete login manually.")
+                print("  Try running with --no-headless to complete login manually.")
                 if headless:
                     await browser.close()
                     return {'error': 'Login blocked by Google'}
