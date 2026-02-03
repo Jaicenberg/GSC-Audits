@@ -1,0 +1,33 @@
+# Virtual environment
+venv/
+.venv/
+
+# Browser session (contains login cookies - sensitive!)
+browser_session/
+
+# Temporary downloads
+downloads_temp/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Credentials and keys - NEVER commit these!
+Service Account Key/
+*.json
+!package.json
+
+# Audit data (large files, keep local)
+GSC Audit */
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
