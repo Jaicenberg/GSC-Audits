@@ -220,34 +220,57 @@ async def export_indexing_report(page, property_url, output_path, date_str):
             print(f"    Could not find export button for Indexing")
             return False
 
-        # The indexing export might directly download or show options
-        # Try to catch the download
+        # Wait for menu to appear after clicking export
+        await page.wait_for_timeout(1000)
+
+        # The indexing export shows a dropdown menu - need to click the download option
         download = None
 
-        # First check if there's a menu with options
+        # Try clicking on menu items that trigger download
         menu_selectors = [
+            'span.izuYW',  # Same class as export button, but in menu
             'text="Download"',
+            'text="Export"',
             '[role="menuitem"]',
+            '[role="option"]',
             '.VfPpkd-StrnGf-rymPhb-ibnC6b',
+            'a[download]',
+            '[data-value]',
         ]
 
         for selector in menu_selectors:
             try:
-                opt = page.locator(selector).first
-                if await opt.is_visible(timeout=1000):
-                    download = await wait_for_download(page, lambda: opt.click())
-                    if download:
-                        break
+                # Get all matching elements and try each one
+                opts = page.locator(selector)
+                count = await opts.count()
+                for i in range(count):
+                    opt = opts.nth(i)
+                    if await opt.is_visible(timeout=500):
+                        try:
+                            download = await wait_for_download(page, lambda o=opt: o.click(), timeout=10000)
+                            if download:
+                                break
+                        except:
+                            continue
+                if download:
+                    break
             except:
                 continue
 
-        # If no menu appeared, the export might have started directly
+        # If still no download, try clicking anything visible that might trigger it
         if not download:
             try:
-                # Wait a bit for any automatic download
-                async with page.expect_download(timeout=5000) as download_info:
-                    pass  # Download may have already started
-                download = await download_info.value
+                # Look for any clickable element in a popup/menu
+                popup_items = page.locator('[role="menu"] >> visible=true').locator('*')
+                count = await popup_items.count()
+                for i in range(min(count, 5)):  # Try first 5 items
+                    item = popup_items.nth(i)
+                    try:
+                        download = await wait_for_download(page, lambda it=item: it.click(), timeout=5000)
+                        if download:
+                            break
+                    except:
+                        continue
             except:
                 pass
 
