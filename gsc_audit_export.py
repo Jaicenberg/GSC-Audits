@@ -223,56 +223,28 @@ async def export_indexing_report(page, property_url, output_path, date_str):
         # Wait for menu to appear after clicking export
         await page.wait_for_timeout(1000)
 
-        # The indexing export shows a dropdown menu - need to click the download option
+        # The indexing export shows a dropdown menu - need to click "Download CSV"
         download = None
 
-        # Try clicking on menu items that trigger download
-        menu_selectors = [
-            'span.izuYW',  # Same class as export button, but in menu
-            'text="Download"',
-            'text="Export"',
-            '[role="menuitem"]',
-            '[role="option"]',
-            '.VfPpkd-StrnGf-rymPhb-ibnC6b',
-            'a[download]',
-            '[data-value]',
+        # Use same selectors that work for Links export
+        csv_selectors = [
+            'text="Download CSV"',
+            'text="CSV"',
+            '[role="menuitem"]:has-text("CSV")',
+            '[role="menuitem"]:has-text("Download")',
+            'a:has-text("CSV")',
+            '.VfPpkd-StrnGf-rymPhb-ibnC6b:has-text("CSV")',
         ]
 
-        for selector in menu_selectors:
+        for selector in csv_selectors:
             try:
-                # Get all matching elements and try each one
-                opts = page.locator(selector)
-                count = await opts.count()
-                for i in range(count):
-                    opt = opts.nth(i)
-                    if await opt.is_visible(timeout=500):
-                        try:
-                            download = await wait_for_download(page, lambda o=opt: o.click(), timeout=10000)
-                            if download:
-                                break
-                        except:
-                            continue
-                if download:
-                    break
+                csv_opt = page.locator(selector).first
+                if await csv_opt.is_visible(timeout=1000):
+                    download = await wait_for_download(page, lambda c=csv_opt: c.click(), timeout=15000)
+                    if download:
+                        break
             except:
                 continue
-
-        # If still no download, try clicking anything visible that might trigger it
-        if not download:
-            try:
-                # Look for any clickable element in a popup/menu
-                popup_items = page.locator('[role="menu"] >> visible=true').locator('*')
-                count = await popup_items.count()
-                for i in range(min(count, 5)):  # Try first 5 items
-                    item = popup_items.nth(i)
-                    try:
-                        download = await wait_for_download(page, lambda it=item: it.click(), timeout=5000)
-                        if download:
-                            break
-                    except:
-                        continue
-            except:
-                pass
 
         if download:
             # The file might be a zip or csv - check the suggested filename
@@ -375,17 +347,16 @@ def filter_properties(properties, excluded_domains):
 
 
 async def run_full_audit(properties=None, output_folder_name=None, headless=False,
-                         export_links=True, export_indexing=True, auto_discover=True):
+                         export_links=True, export_indexing=True):
     """
     Run full audit export for all properties.
 
     Args:
-        properties: List of property URLs (optional - will auto-discover if not provided)
+        properties: List of property URLs (optional - uses fallback list if not provided)
         output_folder_name: Custom folder name (default: auto-generated)
-        headless: Run without browser window (not recommended for first run)
+        headless: Run without browser window (default: True)
         export_links: Export Top Linking Sites
         export_indexing: Export Page Indexing/Coverage
-        auto_discover: Auto-discover properties from GSC (default: True)
     """
     if output_folder_name is None:
         month_name = datetime.date.today().strftime('%B %Y')
@@ -492,21 +463,10 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
                     await browser.close()
                     return {'error': 'Login blocked by Google'}
 
-        # Auto-discover properties if not provided
-        if properties is None or auto_discover:
-            print("\nDiscovering properties from your GSC account...")
-            discovered = await discover_properties(page)
-
-            if discovered:
-                # Filter out excluded domains
-                properties = filter_properties(discovered, EXCLUDED_DOMAINS)
-                print(f"  Discovered: {len(discovered)} properties")
-                print(f"  After exclusions: {len(properties)} properties")
-            else:
-                print("  Could not auto-discover properties.")
-                if properties is None:
-                    print("  Using fallback property list...")
-                    properties = filter_properties(PROPERTIES, EXCLUDED_DOMAINS)
+        # Use provided properties or fallback list (skip auto-discovery - it doesn't work reliably)
+        if properties is None:
+            properties = filter_properties(PROPERTIES, EXCLUDED_DOMAINS)
+            print(f"\nUsing property list: {len(properties)} properties (after exclusions)")
 
         print(f"\nProperties to process: {len(properties)}")
         print(f"Exports: Links={export_links}, Indexing={export_indexing}")
@@ -676,8 +636,6 @@ if __name__ == '__main__':
     parser.add_argument('--no-headless', action='store_true', help='Run with visible browser window')
     parser.add_argument('--links-only', action='store_true', help='Only export Links report')
     parser.add_argument('--indexing-only', action='store_true', help='Only export Indexing report')
-    parser.add_argument('--use-fallback-list', action='store_true',
-                        help='Use the hardcoded fallback property list instead of auto-discovery')
 
     args = parser.parse_args()
 
@@ -688,26 +646,11 @@ if __name__ == '__main__':
     print(f"Excluded domains: {', '.join(EXCLUDED_DOMAINS)}")
     print(f"Headless mode: {headless}")
 
-    if args.use_fallback_list:
-        # Use the hardcoded list
-        active_properties = get_active_properties()
-        print(f"Using fallback list: {len(active_properties)} properties\n")
-        asyncio.run(run_full_audit(
-            properties=active_properties,
-            output_folder_name=args.folder,
-            headless=headless,
-            export_links=export_links,
-            export_indexing=export_indexing,
-            auto_discover=False
-        ))
-    else:
-        # Auto-discover from GSC
-        print("Will auto-discover all properties from your GSC account.\n")
-        asyncio.run(run_full_audit(
-            properties=None,
-            output_folder_name=args.folder,
-            headless=headless,
-            export_links=export_links,
-            export_indexing=export_indexing,
-            auto_discover=True
-        ))
+    # Always use the property list (auto-discovery doesn't work reliably)
+    asyncio.run(run_full_audit(
+        properties=None,  # Will use fallback list
+        output_folder_name=args.folder,
+        headless=headless,
+        export_links=export_links,
+        export_indexing=export_indexing
+    ))
