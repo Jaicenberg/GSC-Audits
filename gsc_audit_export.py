@@ -80,13 +80,15 @@ async def export_links_report(page, property_url, output_path, date_str):
         # Try to find export button by looking for the icon/button in the toolbar
         # GSC uses material icons, the export is usually a download arrow
         export_selectors = [
+            'span.izuYW',  # GSC export button class
+            '[aria-label*="xport"]',
+            '[aria-label*="ownload"]',
             'button[aria-label*="xport"]',
             'button[aria-label*="ownload"]',
             '[data-tooltip*="xport"]',
             'button:has-text("Export")',
-            # GSC specific - look for the toolbar button
-            '.Lj2aab button',  # Common GSC button container
-            'button.VfPpkd-LgbsSe',  # Material button class
+            '.Lj2aab button',
+            'button.VfPpkd-LgbsSe',
         ]
 
         for selector in export_selectors:
@@ -177,6 +179,9 @@ async def export_indexing_report(page, property_url, output_path, date_str):
         export_clicked = False
 
         export_selectors = [
+            'span.izuYW',  # GSC export button class
+            '[aria-label*="xport"]',
+            '[aria-label*="ownload"]',
             'button[aria-label*="xport"]',
             'button[aria-label*="ownload"]',
             '[data-tooltip*="xport"]',
