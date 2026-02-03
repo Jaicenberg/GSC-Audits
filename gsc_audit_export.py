@@ -870,53 +870,309 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"""
         print(f"  Error: {e}")
 
 
-if __name__ == '__main__':
-    import argparse
+def get_audit_folders():
+    """Get list of existing audit folders."""
+    folders = []
+    for item in BASE_DIR.iterdir():
+        if item.is_dir() and item.name.startswith('GSC Audit'):
+            folders.append(item)
+    return sorted(folders, reverse=True)  # Most recent first
 
-    parser = argparse.ArgumentParser(description='GSC Full Audit Export')
-    parser.add_argument('--folder', '-f', help='Output folder name')
-    parser.add_argument('--headless', action='store_true', default=True, help='Run in headless mode (default)')
-    parser.add_argument('--no-headless', action='store_true', help='Run with visible browser window')
-    parser.add_argument('--links-only', action='store_true', help='Only export Links report')
-    parser.add_argument('--indexing-only', action='store_true', help='Only export Indexing report')
-    parser.add_argument('--no-analysis', action='store_true', help='Skip Claude analysis')
-    parser.add_argument('--no-push', action='store_true', help='Skip pushing to GitHub')
 
-    args = parser.parse_args()
-
-    export_links = not args.indexing_only
-    export_indexing = not args.links_only
-    headless = not args.no_headless  # Headless by default, unless --no-headless specified
-
-    print(f"Excluded domains: {', '.join(EXCLUDED_DOMAINS)}")
-    print(f"Headless mode: {headless}")
-
-    # Determine output folder
-    if args.folder:
-        output_folder_name = args.folder
-    else:
-        month_name = datetime.date.today().strftime('%B %Y')
-        output_folder_name = f'GSC Audit {month_name}'
-
-    output_path = BASE_DIR / output_folder_name
-
-    # Run the export
-    results = asyncio.run(run_full_audit(
-        properties=None,  # Will use fallback list
-        output_folder_name=output_folder_name,
-        headless=headless,
-        export_links=export_links,
-        export_indexing=export_indexing
-    ))
-
-    # Run Claude analysis if not skipped
-    if not args.no_analysis and results and not isinstance(results, dict) or (isinstance(results, dict) and 'error' not in results):
-        run_claude_analysis(output_path, export_links=export_links, export_indexing=export_indexing)
-
-    # Push to GitHub if not skipped
-    if not args.no_push:
-        push_to_github(output_path)
-
+def display_menu():
+    """Display the main menu and get user choice."""
     print("\n" + "=" * 60)
-    print("ALL DONE!")
+    print("   GSC AUDIT TOOL - MAIN MENU")
     print("=" * 60)
+    print("\n  1. Full Audit (Export + Analysis + Push to GitHub)")
+    print("  2. Export Only (Top Links + Indexing)")
+    print("  3. Export Top Links Only")
+    print("  4. Export Indexing Only")
+    print("  5. Run Analysis Only (on existing data)")
+    print("  6. Push to GitHub Only")
+    print("  0. Exit")
+    print("\n" + "-" * 60)
+
+    while True:
+        try:
+            choice = input("Enter your choice (0-6): ").strip()
+            if choice in ['0', '1', '2', '3', '4', '5', '6']:
+                return choice
+            print("Invalid choice. Please enter 0-6.")
+        except KeyboardInterrupt:
+            return '0'
+
+
+def select_folder_menu():
+    """Display folder selection menu."""
+    folders = get_audit_folders()
+
+    print("\n" + "-" * 60)
+    print("SELECT AUDIT FOLDER")
+    print("-" * 60)
+
+    # Option for current month
+    current_month = datetime.date.today().strftime('%B %Y')
+    current_folder_name = f'GSC Audit {current_month}'
+    print(f"\n  1. Current month ({current_folder_name})")
+
+    # List existing folders
+    if folders:
+        print("\n  Existing folders:")
+        for i, folder in enumerate(folders, 2):
+            print(f"  {i}. {folder.name}")
+
+    print(f"\n  0. Cancel")
+    print("-" * 60)
+
+    while True:
+        try:
+            choice = input("Enter your choice: ").strip()
+            if choice == '0':
+                return None
+            if choice == '1':
+                return BASE_DIR / current_folder_name
+            idx = int(choice) - 2
+            if 0 <= idx < len(folders):
+                return folders[idx]
+            print("Invalid choice.")
+        except (ValueError, KeyboardInterrupt):
+            return None
+
+
+def select_analysis_type_menu():
+    """Select which analysis to run."""
+    print("\n" + "-" * 60)
+    print("SELECT ANALYSIS TYPE")
+    print("-" * 60)
+    print("\n  1. Both (Top Links + Indexing)")
+    print("  2. Top Links Only")
+    print("  3. Indexing Only")
+    print("  0. Cancel")
+    print("-" * 60)
+
+    while True:
+        try:
+            choice = input("Enter your choice (0-3): ").strip()
+            if choice == '0':
+                return None, None
+            if choice == '1':
+                return True, True
+            if choice == '2':
+                return True, False
+            if choice == '3':
+                return False, True
+            print("Invalid choice.")
+        except KeyboardInterrupt:
+            return None, None
+
+
+def run_interactive():
+    """Run the tool with interactive menu."""
+
+    while True:
+        choice = display_menu()
+
+        if choice == '0':
+            print("\nGoodbye!")
+            break
+
+        elif choice == '1':
+            # Full Audit
+            print("\n" + "=" * 60)
+            print("FULL AUDIT MODE")
+            print("=" * 60)
+
+            month_name = datetime.date.today().strftime('%B %Y')
+            output_folder_name = f'GSC Audit {month_name}'
+            output_path = BASE_DIR / output_folder_name
+
+            print(f"Output folder: {output_folder_name}")
+            print(f"Excluded domains: {', '.join(EXCLUDED_DOMAINS)}")
+
+            # Run export
+            results = asyncio.run(run_full_audit(
+                properties=None,
+                output_folder_name=output_folder_name,
+                headless=True,
+                export_links=True,
+                export_indexing=True
+            ))
+
+            # Run analysis
+            if results and (not isinstance(results, dict) or 'error' not in results):
+                run_claude_analysis(output_path, export_links=True, export_indexing=True)
+
+            # Push to GitHub
+            push_to_github(output_path)
+
+            print("\n" + "=" * 60)
+            print("FULL AUDIT COMPLETE!")
+            print("=" * 60)
+
+        elif choice == '2':
+            # Export Only (both)
+            month_name = datetime.date.today().strftime('%B %Y')
+            output_folder_name = f'GSC Audit {month_name}'
+
+            print(f"\nExporting to: {output_folder_name}")
+
+            asyncio.run(run_full_audit(
+                properties=None,
+                output_folder_name=output_folder_name,
+                headless=True,
+                export_links=True,
+                export_indexing=True
+            ))
+
+        elif choice == '3':
+            # Export Top Links Only
+            month_name = datetime.date.today().strftime('%B %Y')
+            output_folder_name = f'GSC Audit {month_name}'
+
+            print(f"\nExporting Top Links to: {output_folder_name}")
+
+            asyncio.run(run_full_audit(
+                properties=None,
+                output_folder_name=output_folder_name,
+                headless=True,
+                export_links=True,
+                export_indexing=False
+            ))
+
+        elif choice == '4':
+            # Export Indexing Only
+            month_name = datetime.date.today().strftime('%B %Y')
+            output_folder_name = f'GSC Audit {month_name}'
+
+            print(f"\nExporting Indexing to: {output_folder_name}")
+
+            asyncio.run(run_full_audit(
+                properties=None,
+                output_folder_name=output_folder_name,
+                headless=True,
+                export_links=False,
+                export_indexing=True
+            ))
+
+        elif choice == '5':
+            # Analysis Only
+            folder = select_folder_menu()
+            if folder is None:
+                continue
+
+            if not folder.exists():
+                print(f"\nFolder does not exist: {folder}")
+                print("Please run an export first.")
+                continue
+
+            # Check if folder has data
+            top_links_folder = folder / "Top Links"
+            pages_folder = folder / "Pages"
+
+            has_links = top_links_folder.exists() and any(top_links_folder.glob('*.csv'))
+            has_indexing = pages_folder.exists() and (any(pages_folder.glob('*.zip')) or any(pages_folder.glob('*.csv')))
+
+            if not has_links and not has_indexing:
+                print(f"\nNo data found in {folder.name}")
+                print("Please run an export first.")
+                continue
+
+            # Select analysis type
+            analyze_links, analyze_indexing = select_analysis_type_menu()
+            if analyze_links is None:
+                continue
+
+            # Validate selection
+            if analyze_links and not has_links:
+                print("\nNo Top Links data found. Skipping Top Links analysis.")
+                analyze_links = False
+            if analyze_indexing and not has_indexing:
+                print("\nNo Indexing data found. Skipping Indexing analysis.")
+                analyze_indexing = False
+
+            if not analyze_links and not analyze_indexing:
+                print("\nNothing to analyze.")
+                continue
+
+            print(f"\nRunning analysis on: {folder.name}")
+            run_claude_analysis(folder, export_links=analyze_links, export_indexing=analyze_indexing)
+
+            # Ask if user wants to push
+            push_choice = input("\nPush to GitHub? (y/n): ").strip().lower()
+            if push_choice == 'y':
+                push_to_github(folder)
+
+        elif choice == '6':
+            # Push to GitHub Only
+            folder = select_folder_menu()
+            if folder is None:
+                continue
+
+            if not folder.exists():
+                print(f"\nFolder does not exist: {folder}")
+                continue
+
+            push_to_github(folder)
+
+        input("\nPress Enter to continue...")
+
+
+if __name__ == '__main__':
+    import sys
+
+    # Check for --menu or no arguments to run interactive mode
+    if len(sys.argv) == 1 or '--menu' in sys.argv:
+        run_interactive()
+    else:
+        # Legacy CLI mode for backwards compatibility
+        import argparse
+
+        parser = argparse.ArgumentParser(description='GSC Full Audit Export')
+        parser.add_argument('--folder', '-f', help='Output folder name')
+        parser.add_argument('--headless', action='store_true', default=True, help='Run in headless mode (default)')
+        parser.add_argument('--no-headless', action='store_true', help='Run with visible browser window')
+        parser.add_argument('--links-only', action='store_true', help='Only export Links report')
+        parser.add_argument('--indexing-only', action='store_true', help='Only export Indexing report')
+        parser.add_argument('--no-analysis', action='store_true', help='Skip Claude analysis')
+        parser.add_argument('--no-push', action='store_true', help='Skip pushing to GitHub')
+        parser.add_argument('--menu', action='store_true', help='Run interactive menu')
+
+        args = parser.parse_args()
+
+        export_links = not args.indexing_only
+        export_indexing = not args.links_only
+        headless = not args.no_headless
+
+        print(f"Excluded domains: {', '.join(EXCLUDED_DOMAINS)}")
+        print(f"Headless mode: {headless}")
+
+        # Determine output folder
+        if args.folder:
+            output_folder_name = args.folder
+        else:
+            month_name = datetime.date.today().strftime('%B %Y')
+            output_folder_name = f'GSC Audit {month_name}'
+
+        output_path = BASE_DIR / output_folder_name
+
+        # Run the export
+        results = asyncio.run(run_full_audit(
+            properties=None,
+            output_folder_name=output_folder_name,
+            headless=headless,
+            export_links=export_links,
+            export_indexing=export_indexing
+        ))
+
+        # Run Claude analysis if not skipped
+        if not args.no_analysis and results and (not isinstance(results, dict) or 'error' not in results):
+            run_claude_analysis(output_path, export_links=export_links, export_indexing=export_indexing)
+
+        # Push to GitHub if not skipped
+        if not args.no_push:
+            push_to_github(output_path)
+
+        print("\n" + "=" * 60)
+        print("ALL DONE!")
+        print("=" * 60)
