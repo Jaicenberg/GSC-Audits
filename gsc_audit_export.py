@@ -8,6 +8,7 @@ Automates browser to export:
 import asyncio
 import os
 import re
+import json
 import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -16,6 +17,15 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 # Configuration
 BASE_DIR = Path(__file__).parent
 USER_DATA_DIR = BASE_DIR / "browser_session"
+CREDENTIALS_FILE = BASE_DIR / "credentials.json"
+
+
+def load_credentials():
+    """Load credentials from JSON file (gitignored)."""
+    if CREDENTIALS_FILE.exists():
+        with open(CREDENTIALS_FILE, 'r') as f:
+            return json.load(f)
+    return None
 
 
 def extract_domain(property_url):
@@ -381,26 +391,60 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
         await page.wait_for_load_state('networkidle')
 
         if 'accounts.google.com' in page.url or 'signin' in page.url.lower():
-            print("\n" + "=" * 60)
-            print("LOGIN REQUIRED")
-            print("=" * 60)
-            print("Complete the login in the browser window:")
-            print("  1. Enter your email: ash@nickgray.net")
-            print("  2. Enter your password")
-            print("  3. Complete any 2FA/CAPTCHA if prompted")
-            print("  4. Wait until you see the Search Console dashboard")
-            print("\nTake your time - the browser will wait.")
-            print("=" * 60)
-            input("\nPress Enter here AFTER you see the Search Console dashboard...")
+            print("\nLogin required. Attempting automated login...")
 
-            # Give extra time for any redirects
-            await page.wait_for_timeout(2000)
+            # Load credentials
+            creds = load_credentials()
+            if creds:
+                try:
+                    # Wait for email input
+                    email_input = page.locator('input[type="email"]')
+                    await email_input.wait_for(timeout=10000)
+                    await email_input.fill(creds['email'])
+                    print(f"  Entered email: {creds['email']}")
+
+                    # Click Next
+                    await page.locator('#identifierNext, button:has-text("Next")').click()
+                    await page.wait_for_timeout(3000)
+
+                    # Wait for password input
+                    password_input = page.locator('input[type="password"]')
+                    await password_input.wait_for(timeout=10000)
+                    await password_input.fill(creds['password'])
+                    print("  Entered password")
+
+                    # Click Next/Sign in
+                    await page.locator('#passwordNext, button:has-text("Next"), button:has-text("Sign in")').click()
+                    await page.wait_for_timeout(5000)
+
+                    print("  Login submitted, waiting for redirect...")
+
+                except Exception as e:
+                    print(f"  Automated login failed: {e}")
+                    print("  Please complete login manually in the browser.")
+                    if not headless:
+                        input("  Press Enter after you've logged in...")
+            else:
+                print("  No credentials file found. Please login manually.")
+                if not headless:
+                    input("  Press Enter after you've logged in...")
+
+            # Wait for redirect and navigation
+            await page.wait_for_timeout(3000)
 
             # Navigate to Search Console if not already there
             if 'search.google.com/search-console' not in page.url:
                 await page.goto('https://search.google.com/search-console')
                 await page.wait_for_load_state('networkidle')
             await page.wait_for_timeout(3000)
+
+            # Check if login succeeded
+            if 'accounts.google.com' in page.url:
+                print("\n  WARNING: Still on login page. Google may have blocked automated login.")
+                print("  Try running without --headless to complete login manually.")
+                if headless:
+                    await browser.close()
+                    return {'error': 'Login blocked by Google'}
 
         # Auto-discover properties if not provided
         if properties is None or auto_discover:
@@ -582,7 +626,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='GSC Full Audit Export')
     parser.add_argument('--folder', '-f', help='Output folder name')
-    parser.add_argument('--headless', action='store_true', help='Run in headless mode')
+    parser.add_argument('--headless', action='store_true', default=True, help='Run in headless mode (default)')
+    parser.add_argument('--no-headless', action='store_true', help='Run with visible browser window')
     parser.add_argument('--links-only', action='store_true', help='Only export Links report')
     parser.add_argument('--indexing-only', action='store_true', help='Only export Indexing report')
     parser.add_argument('--use-fallback-list', action='store_true',
@@ -592,8 +637,10 @@ if __name__ == '__main__':
 
     export_links = not args.indexing_only
     export_indexing = not args.links_only
+    headless = not args.no_headless  # Headless by default, unless --no-headless specified
 
     print(f"Excluded domains: {', '.join(EXCLUDED_DOMAINS)}")
+    print(f"Headless mode: {headless}")
 
     if args.use_fallback_list:
         # Use the hardcoded list
@@ -602,7 +649,7 @@ if __name__ == '__main__':
         asyncio.run(run_full_audit(
             properties=active_properties,
             output_folder_name=args.folder,
-            headless=args.headless,
+            headless=headless,
             export_links=export_links,
             export_indexing=export_indexing,
             auto_discover=False
@@ -613,7 +660,7 @@ if __name__ == '__main__':
         asyncio.run(run_full_audit(
             properties=None,
             output_folder_name=args.folder,
-            headless=args.headless,
+            headless=headless,
             export_links=export_links,
             export_indexing=export_indexing,
             auto_discover=True
