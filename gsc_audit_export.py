@@ -664,14 +664,45 @@ def read_csv_files(folder_path, subfolder):
     return "\n".join(content)
 
 
+def get_anthropic_client():
+    """Get Anthropic client, checking for API key in credentials or environment."""
+    try:
+        import anthropic
+    except ImportError:
+        print("  Anthropic SDK not installed. Run: pip install anthropic")
+        return None
+
+    # Check credentials file for API key
+    api_key = None
+    if CREDENTIALS_FILE.exists():
+        creds = load_credentials()
+        if creds and 'anthropic_api_key' in creds:
+            api_key = creds['anthropic_api_key']
+
+    # Fall back to environment variable
+    if not api_key:
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+
+    if not api_key:
+        print("  No Anthropic API key found.")
+        print("  Add 'anthropic_api_key' to credentials.json or set ANTHROPIC_API_KEY environment variable.")
+        return None
+
+    return anthropic.Anthropic(api_key=api_key)
+
+
 def run_claude_analysis(output_path, export_links=True, export_indexing=True):
     """
     Run Claude to analyze the exported data and generate reports.
     """
-    import subprocess
-
     reports_folder = output_path / "Reports"
     reports_folder.mkdir(exist_ok=True)
+
+    # Get Anthropic client
+    client = get_anthropic_client()
+    if not client:
+        print("  Skipping analysis (no API client available).")
+        return
 
     # Get previous month's folder for comparison
     prev_folder = get_previous_month_folder()
@@ -697,7 +728,7 @@ def run_claude_analysis(output_path, export_links=True, export_indexing=True):
             prompt = f"""Analyze the following Google Search Console Top Linking Sites data for {current_month}.
 
 ## Current Month Data ({current_month}):
-{top_links_data[:50000]}  # Limit to avoid token overflow
+{top_links_data[:50000]}
 
 ## Previous Month Report (for comparison):
 {prev_report_content[:20000] if prev_report_content else "No previous report available."}
@@ -715,27 +746,23 @@ Generate a comprehensive analysis report in Markdown format similar to the previ
 Format the report professionally with tables, headers, and clear sections."""
 
             try:
-                # Run Claude CLI for analysis
-                result = subprocess.run(
-                    ['claude', '-p', prompt],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    cwd=str(BASE_DIR)
+                message = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=8000,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
                 )
 
-                if result.returncode == 0 and result.stdout:
+                if message.content:
+                    report_content = message.content[0].text
                     report_file = reports_folder / "TopLinks_Analysis_Report.md"
                     with open(report_file, 'w', encoding='utf-8') as f:
-                        f.write(result.stdout)
+                        f.write(report_content)
                     print(f"  Saved: {report_file.name}")
                 else:
-                    print(f"  Claude analysis failed: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+                    print("  No response from Claude")
 
-            except subprocess.TimeoutExpired:
-                print("  Claude analysis timed out")
-            except FileNotFoundError:
-                print("  Claude CLI not found. Skipping analysis.")
             except Exception as e:
                 print(f"  Claude analysis error: {e}")
 
@@ -780,26 +807,23 @@ Generate an Indexing Analysis Report in Markdown format. Include:
 Note: The actual ZIP files contain detailed indexing data that would need to be extracted for full analysis."""
 
             try:
-                result = subprocess.run(
-                    ['claude', '-p', prompt],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    cwd=str(BASE_DIR)
+                message = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=4000,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
                 )
 
-                if result.returncode == 0 and result.stdout:
+                if message.content:
+                    report_content = message.content[0].text
                     report_file = reports_folder / "Indexing_Analysis_Report.md"
                     with open(report_file, 'w', encoding='utf-8') as f:
-                        f.write(result.stdout)
+                        f.write(report_content)
                     print(f"  Saved: {report_file.name}")
                 else:
-                    print(f"  Claude analysis failed: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+                    print("  No response from Claude")
 
-            except subprocess.TimeoutExpired:
-                print("  Claude analysis timed out")
-            except FileNotFoundError:
-                print("  Claude CLI not found. Skipping analysis.")
             except Exception as e:
                 print(f"  Claude analysis error: {e}")
 
