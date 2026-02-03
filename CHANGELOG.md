@@ -1,5 +1,23 @@
 # GSC Audit Tool - Changelog
 
+## [1.2.0] - 2026-02-03
+
+### Added
+- Interactive menu system (runs by default when no arguments provided)
+- Menu options:
+  - Full Audit (Export + Analysis + Push)
+  - Export Only (Top Links + Indexing)
+  - Export Top Links Only
+  - Export Indexing Only
+  - Analysis Only (select existing folder + analysis type)
+  - Push to GitHub Only
+- Folder selection menu showing all existing audit folders
+- Analysis type selection (both, Top Links only, Indexing only)
+
+### Changed
+- Default mode is now interactive menu
+- CLI arguments still work for automation/scripting
+
 ## [1.1.0] - 2026-02-03
 
 ### Added
