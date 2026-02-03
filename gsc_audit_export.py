@@ -349,14 +349,31 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
     USER_DATA_DIR.mkdir(exist_ok=True)
 
     async with async_playwright() as p:
+        # Launch with settings to avoid bot detection
         browser = await p.chromium.launch_persistent_context(
             user_data_dir=str(USER_DATA_DIR),
             headless=headless,
             accept_downloads=True,
-            viewport={'width': 1280, 'height': 900}
+            viewport={'width': 1280, 'height': 900},
+            # Anti-bot detection settings
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+            ],
+            ignore_default_args=['--enable-automation'],
+            chromium_sandbox=False,
         )
 
         page = await browser.new_page()
+
+        # Remove webdriver property to avoid detection
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
 
         # Navigate to GSC and handle login
         print("Navigating to Google Search Console...")
@@ -367,13 +384,22 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
             print("\n" + "=" * 60)
             print("LOGIN REQUIRED")
             print("=" * 60)
-            print("Please log in to your Google account in the browser window.")
-            print("After logging in successfully, press Enter here to continue...")
-            print("=" * 60 + "\n")
-            input("Press Enter after login...")
+            print("Complete the login in the browser window:")
+            print("  1. Enter your email: ash@nickgray.net")
+            print("  2. Enter your password")
+            print("  3. Complete any 2FA/CAPTCHA if prompted")
+            print("  4. Wait until you see the Search Console dashboard")
+            print("\nTake your time - the browser will wait.")
+            print("=" * 60)
+            input("\nPress Enter here AFTER you see the Search Console dashboard...")
 
-            await page.goto('https://search.google.com/search-console')
-            await page.wait_for_load_state('networkidle')
+            # Give extra time for any redirects
+            await page.wait_for_timeout(2000)
+
+            # Navigate to Search Console if not already there
+            if 'search.google.com/search-console' not in page.url:
+                await page.goto('https://search.google.com/search-console')
+                await page.wait_for_load_state('networkidle')
             await page.wait_for_timeout(3000)
 
         # Auto-discover properties if not provided
