@@ -1,18 +1,30 @@
 # GSC Audit Tool - Changelog
 
+## [1.3.0] - 2026-02-03
+
+### Added
+- `instructions.md` - Template for manual Claude analysis
+- Use with any Claude interface (no API costs)
+
+### Removed
+- Automated Claude analysis (API costs)
+- Anthropic SDK dependency
+
+### Changed
+- Simplified menu (removed analysis option)
+- Menu now reminds to use instructions.md for analysis
+
 ## [1.2.0] - 2026-02-03
 
 ### Added
 - Interactive menu system (runs by default when no arguments provided)
 - Menu options:
-  - Full Audit (Export + Analysis + Push)
+  - Full Audit (Export + Push)
   - Export Only (Top Links + Indexing)
   - Export Top Links Only
   - Export Indexing Only
-  - Analysis Only (select existing folder + analysis type)
   - Push to GitHub Only
 - Folder selection menu showing all existing audit folders
-- Analysis type selection (both, Top Links only, Indexing only)
 
 ### Changed
 - Default mode is now interactive menu

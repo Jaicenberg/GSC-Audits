@@ -627,207 +627,8 @@ def get_active_properties():
     return [p for p in PROPERTIES if not any(excl in p for excl in EXCLUDED_DOMAINS)]
 
 
-def get_previous_month_folder():
-    """Find the previous month's audit folder."""
-    today = datetime.date.today()
-    # Get previous month
-    if today.month == 1:
-        prev_month = 12
-        prev_year = today.year - 1
-    else:
-        prev_month = today.month - 1
-        prev_year = today.year
-
-    prev_month_name = datetime.date(prev_year, prev_month, 1).strftime('%B %Y')
-    prev_folder = BASE_DIR / f'GSC Audit {prev_month_name}'
-
-    if prev_folder.exists():
-        return prev_folder
-    return None
 
 
-def read_csv_files(folder_path, subfolder):
-    """Read all CSV files from a subfolder and return combined content."""
-    csv_folder = folder_path / subfolder
-    if not csv_folder.exists():
-        return ""
-
-    content = []
-    for csv_file in sorted(csv_folder.glob('*.csv')):
-        try:
-            with open(csv_file, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-                content.append(f"=== {csv_file.name} ===\n{file_content}\n")
-        except Exception as e:
-            print(f"  Warning: Could not read {csv_file.name}: {e}")
-
-    return "\n".join(content)
-
-
-def get_anthropic_client():
-    """Get Anthropic client, checking for API key in credentials or environment."""
-    try:
-        import anthropic
-    except ImportError:
-        print("  Anthropic SDK not installed. Run: pip install anthropic")
-        return None
-
-    # Check credentials file for API key
-    api_key = None
-    if CREDENTIALS_FILE.exists():
-        creds = load_credentials()
-        if creds and 'anthropic_api_key' in creds:
-            api_key = creds['anthropic_api_key']
-
-    # Fall back to environment variable
-    if not api_key:
-        api_key = os.environ.get('ANTHROPIC_API_KEY')
-
-    if not api_key:
-        print("  No Anthropic API key found.")
-        print("  Add 'anthropic_api_key' to credentials.json or set ANTHROPIC_API_KEY environment variable.")
-        return None
-
-    return anthropic.Anthropic(api_key=api_key)
-
-
-def run_claude_analysis(output_path, export_links=True, export_indexing=True):
-    """
-    Run Claude to analyze the exported data and generate reports.
-    """
-    reports_folder = output_path / "Reports"
-    reports_folder.mkdir(exist_ok=True)
-
-    # Get Anthropic client
-    client = get_anthropic_client()
-    if not client:
-        print("  Skipping analysis (no API client available).")
-        return
-
-    # Get previous month's folder for comparison
-    prev_folder = get_previous_month_folder()
-    prev_report_content = ""
-    if prev_folder:
-        prev_report_file = prev_folder / "Reports" / "TopLinks_Analysis_Report.md"
-        if prev_report_file.exists():
-            with open(prev_report_file, 'r', encoding='utf-8') as f:
-                prev_report_content = f.read()
-            print(f"  Found previous report: {prev_report_file.name}")
-
-    current_month = datetime.date.today().strftime('%B %Y')
-    date_str = datetime.date.today().strftime('%Y-%m-%d')
-
-    # Generate Top Links Analysis Report
-    if export_links:
-        print("\nGenerating Top Links Analysis Report...")
-
-        # Read all Top Links CSVs
-        top_links_data = read_csv_files(output_path, "Top Links")
-
-        if top_links_data:
-            prompt = f"""Analyze the following Google Search Console Top Linking Sites data for {current_month}.
-
-## Current Month Data ({current_month}):
-{top_links_data[:50000]}
-
-## Previous Month Report (for comparison):
-{prev_report_content[:20000] if prev_report_content else "No previous report available."}
-
-Generate a comprehensive analysis report in Markdown format similar to the previous report structure. Include:
-1. Overview Statistics (total domains, unique linking sites, etc.)
-2. Top 10 Most Common Linking Sites
-3. Month-over-month trend analysis (improvements, stable, decreases)
-4. Domains with most/fewest linking sites
-5. Link quality categories (high-authority, quality business, profile/directory)
-6. New domains and domains no longer in network
-7. Summary of changes
-8. Recommendations
-
-Format the report professionally with tables, headers, and clear sections."""
-
-            try:
-                message = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=8000,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-
-                if message.content:
-                    report_content = message.content[0].text
-                    report_file = reports_folder / "TopLinks_Analysis_Report.md"
-                    with open(report_file, 'w', encoding='utf-8') as f:
-                        f.write(report_content)
-                    print(f"  Saved: {report_file.name}")
-                else:
-                    print("  No response from Claude")
-
-            except Exception as e:
-                print(f"  Claude analysis error: {e}")
-
-    # Generate Indexing Analysis Report
-    if export_indexing:
-        print("\nGenerating Indexing Analysis Report...")
-
-        # For indexing, we need to read ZIP files - for now just note what was exported
-        pages_folder = output_path / "Pages"
-        if pages_folder.exists():
-            zip_files = list(pages_folder.glob('*.zip'))
-            csv_files = list(pages_folder.glob('*.csv'))
-
-            indexing_summary = f"Exported {len(zip_files)} ZIP files and {len(csv_files)} CSV files.\n\n"
-            indexing_summary += "Files exported:\n"
-            for f in sorted(zip_files + csv_files)[:50]:
-                indexing_summary += f"- {f.name}\n"
-
-            # Get previous indexing report if exists
-            prev_indexing_report = ""
-            if prev_folder:
-                prev_idx_file = prev_folder / "Reports" / "Indexing_Analysis_Report.md"
-                if prev_idx_file.exists():
-                    with open(prev_idx_file, 'r', encoding='utf-8') as f:
-                        prev_indexing_report = f.read()
-
-            prompt = f"""Analyze the following Google Search Console Page Indexing data export for {current_month}.
-
-## Current Month Export Summary:
-{indexing_summary}
-
-## Previous Month Report (for comparison):
-{prev_indexing_report[:10000] if prev_indexing_report else "No previous indexing report available."}
-
-Generate an Indexing Analysis Report in Markdown format. Include:
-1. Overview of exported data
-2. Summary of indexing status across all properties
-3. Month-over-month comparison (if previous data available)
-4. Properties that may need attention
-5. Recommendations for improving indexing
-
-Note: The actual ZIP files contain detailed indexing data that would need to be extracted for full analysis."""
-
-            try:
-                message = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=4000,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-
-                if message.content:
-                    report_content = message.content[0].text
-                    report_file = reports_folder / "Indexing_Analysis_Report.md"
-                    with open(report_file, 'w', encoding='utf-8') as f:
-                        f.write(report_content)
-                    print(f"  Saved: {report_file.name}")
-                else:
-                    print("  No response from Claude")
-
-            except Exception as e:
-                print(f"  Claude analysis error: {e}")
-
-    print(f"\nReports saved to: {reports_folder}")
 
 
 def push_to_github(output_path):
@@ -908,21 +709,22 @@ def display_menu():
     print("\n" + "=" * 60)
     print("   GSC AUDIT TOOL - MAIN MENU")
     print("=" * 60)
-    print("\n  1. Full Audit (Export + Analysis + Push to GitHub)")
+    print("\n  1. Full Audit (Export + Push to GitHub)")
     print("  2. Export Only (Top Links + Indexing)")
     print("  3. Export Top Links Only")
     print("  4. Export Indexing Only")
-    print("  5. Run Analysis Only (on existing data)")
-    print("  6. Push to GitHub Only")
+    print("  5. Push to GitHub Only")
     print("  0. Exit")
     print("\n" + "-" * 60)
+    print("  Note: For analysis, use instructions.md with Claude manually")
+    print("-" * 60)
 
     while True:
         try:
-            choice = input("Enter your choice (0-6): ").strip()
-            if choice in ['0', '1', '2', '3', '4', '5', '6']:
+            choice = input("Enter your choice (0-5): ").strip()
+            if choice in ['0', '1', '2', '3', '4', '5']:
                 return choice
-            print("Invalid choice. Please enter 0-6.")
+            print("Invalid choice. Please enter 0-5.")
         except KeyboardInterrupt:
             return '0'
 
@@ -964,33 +766,6 @@ def select_folder_menu():
             return None
 
 
-def select_analysis_type_menu():
-    """Select which analysis to run."""
-    print("\n" + "-" * 60)
-    print("SELECT ANALYSIS TYPE")
-    print("-" * 60)
-    print("\n  1. Both (Top Links + Indexing)")
-    print("  2. Top Links Only")
-    print("  3. Indexing Only")
-    print("  0. Cancel")
-    print("-" * 60)
-
-    while True:
-        try:
-            choice = input("Enter your choice (0-3): ").strip()
-            if choice == '0':
-                return None, None
-            if choice == '1':
-                return True, True
-            if choice == '2':
-                return True, False
-            if choice == '3':
-                return False, True
-            print("Invalid choice.")
-        except KeyboardInterrupt:
-            return None, None
-
-
 def run_interactive():
     """Run the tool with interactive menu."""
 
@@ -1023,16 +798,15 @@ def run_interactive():
                 export_indexing=True
             ))
 
-            # Run analysis
-            if results and (not isinstance(results, dict) or 'error' not in results):
-                run_claude_analysis(output_path, export_links=True, export_indexing=True)
-
             # Push to GitHub
             push_to_github(output_path)
 
             print("\n" + "=" * 60)
-            print("FULL AUDIT COMPLETE!")
+            print("EXPORT COMPLETE!")
             print("=" * 60)
+            print("\nTo run analysis, use instructions.md with Claude:")
+            print(f"  Share folder: {output_path}")
+            print("  Previous month: GSC Audit January 2026 (for comparison)")
 
         elif choice == '2':
             # Export Only (both)
@@ -1080,54 +854,6 @@ def run_interactive():
             ))
 
         elif choice == '5':
-            # Analysis Only
-            folder = select_folder_menu()
-            if folder is None:
-                continue
-
-            if not folder.exists():
-                print(f"\nFolder does not exist: {folder}")
-                print("Please run an export first.")
-                continue
-
-            # Check if folder has data
-            top_links_folder = folder / "Top Links"
-            pages_folder = folder / "Pages"
-
-            has_links = top_links_folder.exists() and any(top_links_folder.glob('*.csv'))
-            has_indexing = pages_folder.exists() and (any(pages_folder.glob('*.zip')) or any(pages_folder.glob('*.csv')))
-
-            if not has_links and not has_indexing:
-                print(f"\nNo data found in {folder.name}")
-                print("Please run an export first.")
-                continue
-
-            # Select analysis type
-            analyze_links, analyze_indexing = select_analysis_type_menu()
-            if analyze_links is None:
-                continue
-
-            # Validate selection
-            if analyze_links and not has_links:
-                print("\nNo Top Links data found. Skipping Top Links analysis.")
-                analyze_links = False
-            if analyze_indexing and not has_indexing:
-                print("\nNo Indexing data found. Skipping Indexing analysis.")
-                analyze_indexing = False
-
-            if not analyze_links and not analyze_indexing:
-                print("\nNothing to analyze.")
-                continue
-
-            print(f"\nRunning analysis on: {folder.name}")
-            run_claude_analysis(folder, export_links=analyze_links, export_indexing=analyze_indexing)
-
-            # Ask if user wants to push
-            push_choice = input("\nPush to GitHub? (y/n): ").strip().lower()
-            if push_choice == 'y':
-                push_to_github(folder)
-
-        elif choice == '6':
             # Push to GitHub Only
             folder = select_folder_menu()
             if folder is None:
@@ -1158,7 +884,6 @@ if __name__ == '__main__':
         parser.add_argument('--no-headless', action='store_true', help='Run with visible browser window')
         parser.add_argument('--links-only', action='store_true', help='Only export Links report')
         parser.add_argument('--indexing-only', action='store_true', help='Only export Indexing report')
-        parser.add_argument('--no-analysis', action='store_true', help='Skip Claude analysis')
         parser.add_argument('--no-push', action='store_true', help='Skip pushing to GitHub')
         parser.add_argument('--menu', action='store_true', help='Run interactive menu')
 
@@ -1189,14 +914,12 @@ if __name__ == '__main__':
             export_indexing=export_indexing
         ))
 
-        # Run Claude analysis if not skipped
-        if not args.no_analysis and results and (not isinstance(results, dict) or 'error' not in results):
-            run_claude_analysis(output_path, export_links=export_links, export_indexing=export_indexing)
-
         # Push to GitHub if not skipped
         if not args.no_push:
             push_to_github(output_path)
 
         print("\n" + "=" * 60)
-        print("ALL DONE!")
+        print("EXPORT COMPLETE!")
+        print("=" * 60)
+        print("\nFor analysis, use instructions.md with Claude manually.")
         print("=" * 60)
