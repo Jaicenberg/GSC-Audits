@@ -19,8 +19,8 @@ Service Account Key/
 *.json
 !package.json
 
-# Audit data (large files, keep local)
-GSC Audit */
+# Audit data - included for team collaboration
+# GSC Audit */
 
 # IDE
 .idea/
