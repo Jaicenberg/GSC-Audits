@@ -627,6 +627,249 @@ def get_active_properties():
     return [p for p in PROPERTIES if not any(excl in p for excl in EXCLUDED_DOMAINS)]
 
 
+def get_previous_month_folder():
+    """Find the previous month's audit folder."""
+    today = datetime.date.today()
+    # Get previous month
+    if today.month == 1:
+        prev_month = 12
+        prev_year = today.year - 1
+    else:
+        prev_month = today.month - 1
+        prev_year = today.year
+
+    prev_month_name = datetime.date(prev_year, prev_month, 1).strftime('%B %Y')
+    prev_folder = BASE_DIR / f'GSC Audit {prev_month_name}'
+
+    if prev_folder.exists():
+        return prev_folder
+    return None
+
+
+def read_csv_files(folder_path, subfolder):
+    """Read all CSV files from a subfolder and return combined content."""
+    csv_folder = folder_path / subfolder
+    if not csv_folder.exists():
+        return ""
+
+    content = []
+    for csv_file in sorted(csv_folder.glob('*.csv')):
+        try:
+            with open(csv_file, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+                content.append(f"=== {csv_file.name} ===\n{file_content}\n")
+        except Exception as e:
+            print(f"  Warning: Could not read {csv_file.name}: {e}")
+
+    return "\n".join(content)
+
+
+def run_claude_analysis(output_path, export_links=True, export_indexing=True):
+    """
+    Run Claude to analyze the exported data and generate reports.
+    """
+    import subprocess
+
+    reports_folder = output_path / "Reports"
+    reports_folder.mkdir(exist_ok=True)
+
+    # Get previous month's folder for comparison
+    prev_folder = get_previous_month_folder()
+    prev_report_content = ""
+    if prev_folder:
+        prev_report_file = prev_folder / "Reports" / "TopLinks_Analysis_Report.md"
+        if prev_report_file.exists():
+            with open(prev_report_file, 'r', encoding='utf-8') as f:
+                prev_report_content = f.read()
+            print(f"  Found previous report: {prev_report_file.name}")
+
+    current_month = datetime.date.today().strftime('%B %Y')
+    date_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    # Generate Top Links Analysis Report
+    if export_links:
+        print("\nGenerating Top Links Analysis Report...")
+
+        # Read all Top Links CSVs
+        top_links_data = read_csv_files(output_path, "Top Links")
+
+        if top_links_data:
+            prompt = f"""Analyze the following Google Search Console Top Linking Sites data for {current_month}.
+
+## Current Month Data ({current_month}):
+{top_links_data[:50000]}  # Limit to avoid token overflow
+
+## Previous Month Report (for comparison):
+{prev_report_content[:20000] if prev_report_content else "No previous report available."}
+
+Generate a comprehensive analysis report in Markdown format similar to the previous report structure. Include:
+1. Overview Statistics (total domains, unique linking sites, etc.)
+2. Top 10 Most Common Linking Sites
+3. Month-over-month trend analysis (improvements, stable, decreases)
+4. Domains with most/fewest linking sites
+5. Link quality categories (high-authority, quality business, profile/directory)
+6. New domains and domains no longer in network
+7. Summary of changes
+8. Recommendations
+
+Format the report professionally with tables, headers, and clear sections."""
+
+            try:
+                # Run Claude CLI for analysis
+                result = subprocess.run(
+                    ['claude', '-p', prompt],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    cwd=str(BASE_DIR)
+                )
+
+                if result.returncode == 0 and result.stdout:
+                    report_file = reports_folder / "TopLinks_Analysis_Report.md"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        f.write(result.stdout)
+                    print(f"  Saved: {report_file.name}")
+                else:
+                    print(f"  Claude analysis failed: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+
+            except subprocess.TimeoutExpired:
+                print("  Claude analysis timed out")
+            except FileNotFoundError:
+                print("  Claude CLI not found. Skipping analysis.")
+            except Exception as e:
+                print(f"  Claude analysis error: {e}")
+
+    # Generate Indexing Analysis Report
+    if export_indexing:
+        print("\nGenerating Indexing Analysis Report...")
+
+        # For indexing, we need to read ZIP files - for now just note what was exported
+        pages_folder = output_path / "Pages"
+        if pages_folder.exists():
+            zip_files = list(pages_folder.glob('*.zip'))
+            csv_files = list(pages_folder.glob('*.csv'))
+
+            indexing_summary = f"Exported {len(zip_files)} ZIP files and {len(csv_files)} CSV files.\n\n"
+            indexing_summary += "Files exported:\n"
+            for f in sorted(zip_files + csv_files)[:50]:
+                indexing_summary += f"- {f.name}\n"
+
+            # Get previous indexing report if exists
+            prev_indexing_report = ""
+            if prev_folder:
+                prev_idx_file = prev_folder / "Reports" / "Indexing_Analysis_Report.md"
+                if prev_idx_file.exists():
+                    with open(prev_idx_file, 'r', encoding='utf-8') as f:
+                        prev_indexing_report = f.read()
+
+            prompt = f"""Analyze the following Google Search Console Page Indexing data export for {current_month}.
+
+## Current Month Export Summary:
+{indexing_summary}
+
+## Previous Month Report (for comparison):
+{prev_indexing_report[:10000] if prev_indexing_report else "No previous indexing report available."}
+
+Generate an Indexing Analysis Report in Markdown format. Include:
+1. Overview of exported data
+2. Summary of indexing status across all properties
+3. Month-over-month comparison (if previous data available)
+4. Properties that may need attention
+5. Recommendations for improving indexing
+
+Note: The actual ZIP files contain detailed indexing data that would need to be extracted for full analysis."""
+
+            try:
+                result = subprocess.run(
+                    ['claude', '-p', prompt],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    cwd=str(BASE_DIR)
+                )
+
+                if result.returncode == 0 and result.stdout:
+                    report_file = reports_folder / "Indexing_Analysis_Report.md"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        f.write(result.stdout)
+                    print(f"  Saved: {report_file.name}")
+                else:
+                    print(f"  Claude analysis failed: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+
+            except subprocess.TimeoutExpired:
+                print("  Claude analysis timed out")
+            except FileNotFoundError:
+                print("  Claude CLI not found. Skipping analysis.")
+            except Exception as e:
+                print(f"  Claude analysis error: {e}")
+
+    print(f"\nReports saved to: {reports_folder}")
+
+
+def push_to_github(output_path):
+    """
+    Commit and push the audit data to GitHub.
+    """
+    import subprocess
+
+    print("\n" + "=" * 60)
+    print("PUSHING TO GITHUB")
+    print("=" * 60)
+
+    try:
+        # Get current month for commit message
+        current_month = datetime.date.today().strftime('%B %Y')
+
+        # Stage the audit folder
+        folder_name = output_path.name
+        subprocess.run(['git', 'add', folder_name], cwd=str(BASE_DIR), check=True)
+        subprocess.run(['git', 'add', 'CHANGELOG.md'], cwd=str(BASE_DIR), check=False)  # If exists
+
+        # Create commit
+        commit_msg = f"""Add {current_month} GSC Audit data
+
+- Top Links exports
+- Page Indexing exports
+- Analysis reports
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"""
+
+        result = subprocess.run(
+            ['git', 'commit', '-m', commit_msg],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+            print("  Committed changes")
+
+            # Push to remote
+            push_result = subprocess.run(
+                ['git', 'push'],
+                cwd=str(BASE_DIR),
+                capture_output=True,
+                text=True
+            )
+
+            if push_result.returncode == 0:
+                print("  Pushed to GitHub successfully!")
+            else:
+                print(f"  Push failed: {push_result.stderr[:200]}")
+        else:
+            if 'nothing to commit' in result.stdout or 'nothing to commit' in result.stderr:
+                print("  No new changes to commit")
+            else:
+                print(f"  Commit failed: {result.stderr[:200]}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"  Git error: {e}")
+    except FileNotFoundError:
+        print("  Git not found in PATH")
+    except Exception as e:
+        print(f"  Error: {e}")
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -636,6 +879,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-headless', action='store_true', help='Run with visible browser window')
     parser.add_argument('--links-only', action='store_true', help='Only export Links report')
     parser.add_argument('--indexing-only', action='store_true', help='Only export Indexing report')
+    parser.add_argument('--no-analysis', action='store_true', help='Skip Claude analysis')
+    parser.add_argument('--no-push', action='store_true', help='Skip pushing to GitHub')
 
     args = parser.parse_args()
 
@@ -646,11 +891,32 @@ if __name__ == '__main__':
     print(f"Excluded domains: {', '.join(EXCLUDED_DOMAINS)}")
     print(f"Headless mode: {headless}")
 
-    # Always use the property list (auto-discovery doesn't work reliably)
-    asyncio.run(run_full_audit(
+    # Determine output folder
+    if args.folder:
+        output_folder_name = args.folder
+    else:
+        month_name = datetime.date.today().strftime('%B %Y')
+        output_folder_name = f'GSC Audit {month_name}'
+
+    output_path = BASE_DIR / output_folder_name
+
+    # Run the export
+    results = asyncio.run(run_full_audit(
         properties=None,  # Will use fallback list
-        output_folder_name=args.folder,
+        output_folder_name=output_folder_name,
         headless=headless,
         export_links=export_links,
         export_indexing=export_indexing
     ))
+
+    # Run Claude analysis if not skipped
+    if not args.no_analysis and results and not isinstance(results, dict) or (isinstance(results, dict) and 'error' not in results):
+        run_claude_analysis(output_path, export_links=export_links, export_indexing=export_indexing)
+
+    # Push to GitHub if not skipped
+    if not args.no_push:
+        push_to_github(output_path)
+
+    print("\n" + "=" * 60)
+    print("ALL DONE!")
+    print("=" * 60)
