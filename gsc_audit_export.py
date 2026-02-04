@@ -30,11 +30,57 @@ GSC_LINKS_URL = f"{GSC_BASE_URL}/links/drilldown"  # Top Links
 
 
 def load_credentials():
-    """Load credentials from JSON file (gitignored)."""
+    """Load credentials from JSON file or prompt user for input."""
+    creds = None
+
+    # Try loading from file first
     if CREDENTIALS_FILE.exists():
         with open(CREDENTIALS_FILE, 'r') as f:
-            return json.load(f)
+            creds = json.load(f)
+
+    # Check if we have valid credentials
+    if creds and creds.get('email') and creds.get('password'):
+        return creds
+
+    # Prompt user for credentials
+    print("\n" + "-" * 60)
+    print("GSC LOGIN CREDENTIALS")
+    print("-" * 60)
+    print("No credentials file found or incomplete.")
+    print("Enter your Google account credentials for Search Console:")
+    print("(These will NOT be saved unless you create credentials.json)\n")
+
+    try:
+        email = input("Email: ").strip()
+        password = input("Password: ").strip()
+
+        if email and password:
+            return {'email': email, 'password': password}
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+
     return None
+
+
+def load_properties():
+    """Load properties list from properties.txt file."""
+    properties_file = BASE_DIR / "properties.txt"
+    properties = []
+
+    if properties_file.exists():
+        with open(properties_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith('#'):
+                    # Ensure URL format
+                    if not line.startswith('http'):
+                        line = f"https://{line}"
+                    if not line.endswith('/'):
+                        line = f"{line}/"
+                    properties.append(line)
+
+    return properties
 
 
 def extract_domain(property_url):
@@ -463,10 +509,15 @@ async def run_full_audit(properties=None, output_folder_name=None, headless=Fals
                     await browser.close()
                     return {'error': 'Login blocked by Google'}
 
-        # Use provided properties or fallback list (skip auto-discovery - it doesn't work reliably)
+        # Use provided properties or load from file (skip auto-discovery - it doesn't work reliably)
         if properties is None:
-            properties = filter_properties(PROPERTIES, EXCLUDED_DOMAINS)
-            print(f"\nUsing property list: {len(properties)} properties (after exclusions)")
+            all_properties = load_properties()
+            if not all_properties:
+                print("\nERROR: No properties found. Add URLs to properties.txt")
+                await browser.close()
+                return {'error': 'No properties found'}
+            properties = filter_properties(all_properties, EXCLUDED_DOMAINS)
+            print(f"\nLoaded from properties.txt: {len(properties)} properties (after exclusions)")
 
         print(f"\nProperties to process: {len(properties)}")
         print(f"Exports: Links={export_links}, Indexing={export_indexing}")
@@ -537,94 +588,10 @@ EXCLUDED_DOMAINS = [
     "blakedeutser.com",
 ]
 
-# All properties (excluding the ones above)
-PROPERTIES = [
-    "https://adambuice.com/",
-    "https://adamlgerber.com/",
-    "https://adamrozan.com/",
-    "https://aidenfishbein.com/",
-    "https://alexlieberman.com/",
-    "https://andrewkanderson.com/",
-    "https://andriayu.com/",
-    "https://andysommer.com/",
-    "https://aniawysocka.com/",
-    "https://annepalermo.com/",
-    "https://austinrief.com/",
-    "https://aymanalabdullah.com/",
-    "https://barbruhis.com/",
-    "https://benjaminpeacehoffman.com/",
-    "https://braelinnfrank.com/",
-    "https://brianleenash.com/",
-    "https://burns.gg/",
-    "https://carolinabaffigo.com/",
-    "https://catediaz.com/",
-    "https://cathrynlavery.com/",
-    "https://cherylannconnects.com/",
-    "https://chrisgittings.com/",
-    "https://chrispetkas.com/",
-    "https://chrissparling.net/",
-    "https://collinwmartin.com/",
-    "https://courtneyjohnsonnews.com/",
-    "https://danlerman.com/",
-    "https://davidlkirkpatrick.com/",
-    "https://davidshapiro.co/",
-    "https://dustinhyle.com/",
-    "https://edwindorsey.com/",
-    "https://ericmelchor.com/",
-    "https://geneseidman.com/",
-    "https://gregcook.me/",
-    "https://hannahmelody.com/",
-    "https://itschadrubin.com/",
-    "https://itslaurengoldstein.com/",
-    "https://jacobvoncannon.com/",
-    "https://jasonyoong.com/",
-    "https://jennykaehms.com/",
-    "https://johnarrow.com/",
-    "https://johnwbrandes.com/",
-    "https://jonathanwegener.com/",
-    "https://jordanferney.com/",
-    "https://kaycierobinsonsendero.com/",
-    "https://malonedetecting.com/",
-    "https://mattgronberg.com/",
-    "https://meghanraftery.com/",
-    "https://michaeldelamaza.com/",
-    "https://michaelgalpert.com/",
-    "https://mikesmith.me/",
-    "https://monicalim.co/",
-    "https://nickchristensen.co/",
-    "https://nikhulewsky.com/",
-    "https://noahberkson.com/",
-    "https://peterknox.com/",
-    "https://pieceofpai.com/",
-    "https://pradeepnalluri.com/",
-    "https://randallettinger.com/",
-    "https://randlarsen.com/",
-    "https://realbenalbert.com/",
-    "https://rickyschay.com/",
-    "https://rondarbouze.com/",
-    "https://ryanbed.org/",
-    "https://sameerkirtane.com/",
-    "https://saulz.com/",
-    "https://shaggyeells.com/",
-    "https://shanefarmer.com/",
-    "https://shlomoschreibman.net/",
-    "https://skylarromines.com/",
-    "https://sorenarnsbo.com/",
-    "https://taylorjacobson.org/",
-    "https://theadamrobinson.com/",
-    "https://thearisohn.com/",
-    "https://thebenhirsch.com/",
-    "https://thenicolerojas.com/",
-    "https://tjlarkin.com/",
-    "https://trevormccandless.com/",
-    "https://zain-jaffer.com/",
-    "https://zubilashafiq.com/",
-]
-
-
 def get_active_properties():
     """Return properties list excluding the excluded domains."""
-    return [p for p in PROPERTIES if not any(excl in p for excl in EXCLUDED_DOMAINS)]
+    all_properties = load_properties()
+    return [p for p in all_properties if not any(excl in p for excl in EXCLUDED_DOMAINS)]
 
 
 
@@ -710,10 +677,10 @@ def display_menu():
     print("   GSC AUDIT TOOL - MAIN MENU")
     print("=" * 60)
     print("\n  1. Full Audit (Export + Push to GitHub)")
-    print("  2. Export Only (Top Links + Indexing)")
-    print("  3. Export Top Links Only")
-    print("  4. Export Indexing Only")
-    print("  5. Push to GitHub Only")
+    print("  2. Export All (Top Links + Indexing)")
+    print("  3. Export Top Links")
+    print("  4. Export Indexing")
+    print("  5. Push to GitHub")
     print("  0. Exit")
     print("\n" + "-" * 60)
     print("  Note: For analysis, use instructions.md with Claude manually")

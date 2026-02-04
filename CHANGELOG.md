@@ -1,5 +1,21 @@
 # GSC Audit Tool - Changelog
 
+## [1.4.0] - 2026-02-03
+
+### Added
+- `properties.txt` - External file for managing property URLs (one per line)
+- Interactive credential prompt when `credentials.json` is missing
+- GitHub repo link in `instructions.md` for analysis workflow
+- Post-analysis instructions to save reports and push to GitHub
+
+### Changed
+- Properties now loaded from `properties.txt` instead of hardcoded list
+- Cleaned up menu text (removed "Only" from options)
+- Anyone can now use this tool with their own GSC account
+
+### Removed
+- Hardcoded properties list from Python code
+
 ## [1.3.0] - 2026-02-03
 
 ### Added

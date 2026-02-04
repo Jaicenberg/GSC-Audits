@@ -2,6 +2,8 @@
 
 Use these instructions to analyze Google Search Console audit data exported by the GSC Audit Tool.
 
+**GitHub Repository:** https://github.com/Jaicenberg/GSC-Audits.git
+
 ---
 
 ## How to Use
@@ -262,3 +264,26 @@ Analyze the `Pages/` subfolder containing Coverage/Indexing data exports.
 - The ZIP/CSV files in `Pages/` contain Google's Coverage report export
 - Compare current data with previous month(s) to identify trends
 - Focus on actionable insights and recommendations
+
+---
+
+## After Analysis: Save Reports & Push to GitHub
+
+After generating both analysis reports:
+
+### 1. Save Reports
+Save the generated reports to the `Reports/` subfolder inside the audit folder:
+- `[Audit Folder]/Reports/TopLinks_Analysis_Report.md`
+- `[Audit Folder]/Reports/Indexing_Analysis_Report.md`
+
+### 2. Push to GitHub
+Commit and push the reports to the GitHub repository:
+
+```bash
+cd "C:\Users\franb\OneDrive\Escritorio\Code\Google Search Console"
+git add "[Audit Folder Name]"
+git commit -m "Add [Month Year] analysis reports"
+git push
+```
+
+**Repository:** https://github.com/Jaicenberg/GSC-Audits.git
