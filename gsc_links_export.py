@@ -209,6 +209,131 @@ async def export_links_for_property(page, property_url, output_folder, date_str)
         return False
 
 
+async def export_latest_links_for_property(page, property_url, output_folder, date_str, account_index=2):
+    """
+    Navigate to a property's Links report and export the Latest Links CSV.
+    Uses the 'EXPORT EXTERNAL LINKS' button and selects 'Latest links' option.
+
+    Args:
+        page: Playwright page object
+        property_url: The GSC property URL (e.g., 'sc-domain:example.com')
+        output_folder: Path to save the exported CSV
+        date_str: Date string for filename
+        account_index: Google account index in URL (default: 2)
+    """
+    # URL-encode the property URL for the GSC URL
+    encoded_property = quote(property_url, safe='')
+
+    # Construct the Links report URL with account index
+    links_url = f"https://search.google.com/u/{account_index}/search-console/links?resource_id={encoded_property}"
+
+    try:
+        print(f"  Navigating to Links report...")
+        await page.goto(links_url)
+        await page.wait_for_load_state('networkidle')
+        await page.wait_for_timeout(2000)
+
+        # Check if we're on the right page
+        if 'links' not in page.url.lower():
+            print(f"  Warning: May not be on Links page. Current URL: {page.url}")
+            return False
+
+        # Look for the "EXPORT EXTERNAL LINKS" button using the specific selector
+        export_button = None
+
+        # Primary selector provided by user
+        primary_selector = '#ow21 > span > span > div > span.izuYW'
+
+        # Try the primary selector first
+        try:
+            btn = page.locator(primary_selector)
+            if await btn.is_visible(timeout=3000):
+                export_button = btn
+                print(f"  Found export button using primary selector")
+        except:
+            pass
+
+        # Fallback selectors if primary doesn't work
+        if not export_button:
+            fallback_selectors = [
+                'text="EXPORT EXTERNAL LINKS"',
+                'button:has-text("EXPORT EXTERNAL LINKS")',
+                '[aria-label*="Export external links" i]',
+                'span:has-text("EXPORT EXTERNAL LINKS")',
+            ]
+
+            for selector in fallback_selectors:
+                try:
+                    btn = page.locator(selector).first
+                    if await btn.is_visible(timeout=1000):
+                        export_button = btn
+                        print(f"  Found export button using fallback selector: {selector}")
+                        break
+                except:
+                    continue
+
+        if export_button:
+            print(f"  Clicking 'EXPORT EXTERNAL LINKS' button...")
+            await export_button.click()
+            await page.wait_for_timeout(1000)
+
+            # Now look for the dropdown menu with "Latest links" option
+            latest_links_option = None
+
+            # Try to find "Latest links" option in the dropdown
+            latest_links_selectors = [
+                'text="Latest links"',
+                '[role="menuitem"]:has-text("Latest links")',
+                'div:has-text("Latest links")',
+                'span:has-text("Latest links")',
+            ]
+
+            for selector in latest_links_selectors:
+                try:
+                    opt = page.locator(selector).first
+                    if await opt.is_visible(timeout=2000):
+                        latest_links_option = opt
+                        print(f"  Found 'Latest links' option")
+                        break
+                except:
+                    continue
+
+            if latest_links_option:
+                # Set up download handling before clicking
+                async with page.expect_download(timeout=30000) as download_info:
+                    await latest_links_option.click()
+                    print(f"  Clicked 'Latest links', waiting for download...")
+
+                download = await download_info.value
+
+                # Extract domain name for filename
+                domain = property_url.replace('https://', '').replace('http://', '')
+                domain = domain.replace('sc-domain:', '').rstrip('/')
+
+                # Create filename for latest links
+                filename = f"{domain}-Latest links-{date_str}.csv"
+                save_path = output_folder / filename
+
+                await download.save_as(save_path)
+                print(f"  Saved: {filename}")
+                return True
+            else:
+                print(f"  Could not find 'Latest links' option in dropdown")
+                # Press Escape to close any open menu
+                await page.keyboard.press('Escape')
+                return False
+        else:
+            print(f"  Could not find 'EXPORT EXTERNAL LINKS' button")
+            return False
+
+    except PlaywrightTimeout as e:
+        print(f"  Timeout error: {e}")
+        return False
+    except Exception as e:
+        print(f"  Error exporting latest links: {e}")
+        return False
+
+
 async def run_export(output_folder_name=None, headless=False):
     """
     Main export function.
@@ -386,6 +511,206 @@ async def run_with_property_list(properties, output_folder_name=None, headless=F
         return successful, failed
 
 
+async def run_latest_links_export(properties, output_folder_name=None, headless=False, account_index=2):
+    """
+    Export Latest Links for a list of properties.
+
+    Args:
+        properties: List of property URLs to export
+        output_folder_name: Custom output folder (default: auto-generated)
+        headless: Run browser in headless mode
+        account_index: Google account index in URL (default: 2)
+    """
+    if output_folder_name is None:
+        month_name = datetime.date.today().strftime('%B %Y')
+        output_folder_name = f'GSC Audit {month_name}'
+
+    output_path = BASE_DIR / output_folder_name / 'Latest Links'
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    print(f"Output folder: {output_path}")
+    print(f"Properties to export: {len(properties)}")
+    print(f"Export type: Latest Links")
+    print("-" * 50)
+
+    USER_DATA_DIR.mkdir(exist_ok=True)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch_persistent_context(
+            user_data_dir=str(USER_DATA_DIR),
+            headless=headless,
+            accept_downloads=True,
+            viewport={'width': 1280, 'height': 800}
+        )
+
+        page = await browser.new_page()
+
+        # Navigate to Search Console and handle login
+        await page.goto(f'https://search.google.com/u/{account_index}/search-console')
+        await page.wait_for_load_state('networkidle')
+
+        if 'accounts.google.com' in page.url or 'signin' in page.url.lower():
+            print("\n" + "="*50)
+            print("LOGIN REQUIRED")
+            print("="*50)
+            print("Please log in to your Google account in the browser window.")
+            print("After logging in, press Enter here to continue...")
+            print("="*50 + "\n")
+            input("Press Enter after you've logged in...")
+            await page.goto(f'https://search.google.com/u/{account_index}/search-console')
+            await page.wait_for_load_state('networkidle')
+            await page.wait_for_timeout(3000)
+
+        successful = 0
+        failed = []
+
+        for i, prop in enumerate(properties, 1):
+            print(f"\n[{i}/{len(properties)}] {prop}")
+            success = await export_latest_links_for_property(page, prop, output_path, date_str, account_index)
+
+            if success:
+                successful += 1
+            else:
+                failed.append(prop)
+
+            # Delay between properties to avoid rate limiting
+            await page.wait_for_timeout(1500)
+
+        await browser.close()
+
+        print(f"\n{'='*50}")
+        print("LATEST LINKS EXPORT COMPLETE")
+        print("="*50)
+        print(f"Successful: {successful}/{len(properties)}")
+        print(f"Output: {output_path}")
+
+        if failed:
+            print(f"\nFailed exports ({len(failed)}):")
+            for f in failed:
+                print(f"  - {f}")
+
+        return successful, failed
+
+
+async def run_full_links_export(properties, output_folder_name=None, headless=False, account_index=2,
+                                include_top_links=True, include_latest_links=True):
+    """
+    Run full links export including both Top Links and Latest Links.
+
+    Args:
+        properties: List of property URLs to export
+        output_folder_name: Custom output folder (default: auto-generated)
+        headless: Run browser in headless mode
+        account_index: Google account index in URL
+        include_top_links: Export Top Linking Sites
+        include_latest_links: Export Latest Links
+    """
+    if output_folder_name is None:
+        month_name = datetime.date.today().strftime('%B %Y')
+        output_folder_name = f'GSC Audit {month_name}'
+
+    date_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    # Setup output folders
+    top_links_path = BASE_DIR / output_folder_name / 'Top Links'
+    latest_links_path = BASE_DIR / output_folder_name / 'Latest Links'
+
+    if include_top_links:
+        top_links_path.mkdir(parents=True, exist_ok=True)
+    if include_latest_links:
+        latest_links_path.mkdir(parents=True, exist_ok=True)
+
+    print(f"Output folder: {BASE_DIR / output_folder_name}")
+    print(f"Properties to export: {len(properties)}")
+    print(f"Export types: ", end="")
+    types = []
+    if include_top_links:
+        types.append("Top Links")
+    if include_latest_links:
+        types.append("Latest Links")
+    print(", ".join(types))
+    print("-" * 50)
+
+    USER_DATA_DIR.mkdir(exist_ok=True)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch_persistent_context(
+            user_data_dir=str(USER_DATA_DIR),
+            headless=headless,
+            accept_downloads=True,
+            viewport={'width': 1280, 'height': 800}
+        )
+
+        page = await browser.new_page()
+
+        # Navigate to Search Console and handle login
+        await page.goto(f'https://search.google.com/u/{account_index}/search-console')
+        await page.wait_for_load_state('networkidle')
+
+        if 'accounts.google.com' in page.url or 'signin' in page.url.lower():
+            print("\n" + "="*50)
+            print("LOGIN REQUIRED")
+            print("="*50)
+            print("Please log in to your Google account in the browser window.")
+            print("After logging in, press Enter here to continue...")
+            print("="*50 + "\n")
+            input("Press Enter after you've logged in...")
+            await page.goto(f'https://search.google.com/u/{account_index}/search-console')
+            await page.wait_for_load_state('networkidle')
+            await page.wait_for_timeout(3000)
+
+        results = {
+            'top_links': {'successful': 0, 'failed': []},
+            'latest_links': {'successful': 0, 'failed': []}
+        }
+
+        for i, prop in enumerate(properties, 1):
+            print(f"\n[{i}/{len(properties)}] {prop}")
+
+            # Export Top Links
+            if include_top_links:
+                print(f"  Exporting Top Links...")
+                success = await export_links_for_property(page, prop, top_links_path, date_str)
+                if success:
+                    results['top_links']['successful'] += 1
+                else:
+                    results['top_links']['failed'].append(prop)
+                await page.wait_for_timeout(1000)
+
+            # Export Latest Links
+            if include_latest_links:
+                print(f"  Exporting Latest Links...")
+                success = await export_latest_links_for_property(page, prop, latest_links_path, date_str, account_index)
+                if success:
+                    results['latest_links']['successful'] += 1
+                else:
+                    results['latest_links']['failed'].append(prop)
+                await page.wait_for_timeout(1000)
+
+        await browser.close()
+
+        # Print summary
+        print(f"\n{'='*50}")
+        print("FULL LINKS EXPORT COMPLETE")
+        print("="*50)
+
+        if include_top_links:
+            print(f"\nTop Links: {results['top_links']['successful']}/{len(properties)} successful")
+            if results['top_links']['failed']:
+                print(f"  Failed: {len(results['top_links']['failed'])}")
+
+        if include_latest_links:
+            print(f"\nLatest Links: {results['latest_links']['successful']}/{len(properties)} successful")
+            if results['latest_links']['failed']:
+                print(f"  Failed: {len(results['latest_links']['failed'])}")
+
+        print(f"\nOutput: {BASE_DIR / output_folder_name}")
+
+        return results
+
+
 # List of all 80 properties (extracted from January audit)
 PROPERTIES = [
     "https://adambuice.com/",
@@ -478,15 +803,39 @@ if __name__ == '__main__':
     parser.add_argument('--folder', '-f', help='Output folder name')
     parser.add_argument('--headless', action='store_true', help='Run in headless mode (not recommended for first run)')
     parser.add_argument('--auto-detect', action='store_true', help='Auto-detect properties instead of using built-in list')
+    parser.add_argument('--latest-links', action='store_true', help='Export Latest Links only')
+    parser.add_argument('--top-links', action='store_true', help='Export Top Links only')
+    parser.add_argument('--all-links', action='store_true', help='Export both Top Links and Latest Links')
+    parser.add_argument('--account-index', '-a', type=int, default=2, help='Google account index in URL (default: 2)')
 
     args = parser.parse_args()
 
-    if args.auto_detect:
+    # Determine export mode
+    if args.latest_links:
+        # Export only Latest Links
+        asyncio.run(run_latest_links_export(
+            PROPERTIES,
+            output_folder_name=args.folder,
+            headless=args.headless,
+            account_index=args.account_index
+        ))
+    elif args.all_links:
+        # Export both Top Links and Latest Links
+        asyncio.run(run_full_links_export(
+            PROPERTIES,
+            output_folder_name=args.folder,
+            headless=args.headless,
+            account_index=args.account_index,
+            include_top_links=True,
+            include_latest_links=True
+        ))
+    elif args.auto_detect:
         asyncio.run(run_export(
             output_folder_name=args.folder,
             headless=args.headless
         ))
     else:
+        # Default: Export Top Links only (original behavior)
         asyncio.run(run_with_property_list(
             PROPERTIES,
             output_folder_name=args.folder,

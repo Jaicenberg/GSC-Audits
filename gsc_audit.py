@@ -254,7 +254,8 @@ def inspect_url(service, site_url, page_url):
         }
 
 
-def run_audit(output_folder=None, include_performance=True, include_indexing=False, sample_urls_per_site=5):
+def run_audit(output_folder=None, include_performance=True, include_indexing=False, sample_urls_per_site=5,
+               include_latest_links=False, account_index=2):
     """
     Run the full GSC audit for all properties.
 
@@ -263,6 +264,8 @@ def run_audit(output_folder=None, include_performance=True, include_indexing=Fal
         include_performance: Include performance data export
         include_indexing: Include URL inspection (slower, uses quota)
         sample_urls_per_site: Number of URLs to inspect per site for indexing status
+        include_latest_links: Include Latest Links export via browser automation
+        account_index: Google account index for browser automation (default: 2)
     """
     # Setup output folder
     if output_folder is None:
@@ -359,6 +362,23 @@ def run_audit(output_folder=None, include_performance=True, include_indexing=Fal
         print(f"\n{'='*50}")
         print(f"Summary saved: {summary_file}")
 
+    # Export Latest Links via browser automation if requested
+    if include_latest_links:
+        print(f"\n{'='*50}")
+        print("Starting Latest Links export (browser automation)...")
+        print("="*50)
+
+        import asyncio
+        from gsc_links_export import run_latest_links_export, PROPERTIES
+
+        # Use the property URLs from PROPERTIES list for browser automation
+        asyncio.run(run_latest_links_export(
+            PROPERTIES,
+            output_folder_name=output_folder or f'GSC Audit {datetime.date.today().strftime("%B %Y")}',
+            headless=False,
+            account_index=account_index
+        ))
+
     print(f"\nAudit complete! {len(properties)} properties processed.")
     print(f"Output: {output_path}")
 
@@ -389,6 +409,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-performance', action='store_true', help='Skip performance data')
     parser.add_argument('--indexing', action='store_true', help='Include URL inspection (slower)')
     parser.add_argument('--sample-urls', type=int, default=5, help='URLs to inspect per site')
+    parser.add_argument('--latest-links', action='store_true', help='Include Latest Links export (browser automation)')
+    parser.add_argument('--account-index', '-a', type=int, default=2, help='Google account index for browser automation (default: 2)')
 
     args = parser.parse_args()
 
@@ -396,5 +418,7 @@ if __name__ == '__main__':
         output_folder=args.folder,
         include_performance=not args.no_performance,
         include_indexing=args.indexing,
-        sample_urls_per_site=args.sample_urls
+        sample_urls_per_site=args.sample_urls,
+        include_latest_links=args.latest_links,
+        account_index=args.account_index
     )
